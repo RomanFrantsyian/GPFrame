@@ -1,0 +1,13 @@
+[package]
+name = "gp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+term = { path = "../term" }
+harness = { path = "../harness" }
+# rayon = "1"           # R5: parallel fitness evaluation (v1 M3)
+
+[dev-dependencies]
+locate = { path = "../locate" }   # test-only: repair test drives localization
