@@ -1,4 +1,4 @@
-# deductive-gp-engine — skeleton (v2.0 normative + v2.1 execution merge)
+# GPF — skeleton (v2.0 normative + v2.1 execution merge)
 
 Nine-crate Cargo workspace realizing the project AST. **Engine crates compile with zero
 external dependencies** (cli uses `syn` for the audit — build tooling, not
