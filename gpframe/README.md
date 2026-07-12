@@ -1,4 +1,4 @@
-# deductive-gp-engine
+# GPFrame
 
 **A refactoring, testing, debugging, and JIT engine for pure numeric code — where nothing ships without a certificate.**
 
