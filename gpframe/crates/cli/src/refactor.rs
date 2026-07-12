@@ -7,7 +7,7 @@ use std::path::Path;
 
 pub fn run(args: &[String]) {
     let Some(file) = args.first() else {
-        eprintln!("usage: dge refactor <fn.sexpr> [--eps] [--artifacts <dir>]");
+        eprintln!("usage: dge refactor <fn.sexpr> [--eps] [--domain <max_mag>] [--artifacts <dir>]");
         return;
     };
     let eps = args.iter().any(|a| a == "--eps");
@@ -26,6 +26,12 @@ pub fn run(args: &[String]) {
 
     let mut gate = Gate::default_dial(0xD6E);
     if eps { gate.metric = Metric::fma_mixed(); }
+    if let Some(mag) = args.iter().position(|a| a == "--domain")
+        .and_then(|i| args.get(i + 1)).and_then(|s| s.parse::<f64>().ok())
+    {
+        gate.mu = harness::strategy::MuPrime::bounded(0xD6E, mag);
+        eprintln!("(A-1 domain bound: |x| <= {mag:e} — recorded in certificate)");
+    }
 
     let calib_path = Path::new("artifacts/calib/cost_table.txt");
     let calibrated = rules::cost::CalibratedCost::load(calib_path).ok();

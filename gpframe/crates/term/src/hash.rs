@@ -30,7 +30,7 @@ pub fn structural_hash(t: &Term) -> u64 {
         h = fnv1a(h, n.op.name().as_bytes());
         match n.op {
             Op::Const => h = fnv1a(h, &t.consts[n.a as usize].to_bits().to_le_bytes()),
-            Op::Var => h = fnv1a(h, &n.a.to_le_bytes()),
+            Op::Var | Op::Elem => h = fnv1a(h, &n.a.to_le_bytes()),
             _ => {
                 let ar = n.op.arity();
                 if ar >= 1 { h = fnv1a(h, &sub[n.a as usize].to_le_bytes()); }

@@ -18,6 +18,8 @@ pub fn print(t: &Term) -> String {
                 else { out.push_str(&format!("{v:?}")); }
             }
             Op::Var => out.push_str(&format!("(var {})", n.a)),
+            Op::Acc => out.push_str("acc"),
+            Op::Elem => out.push_str(&format!("(elem {})", n.a)),
             _ => {
                 out.push('(');
                 out.push_str(n.op.name());
@@ -92,10 +94,25 @@ impl<'a> P<'a> {
     fn expr(&mut self, b: &mut TermBuilder) -> Result<NodeId, ParseError> {
         let t = self.next()?;
         if t != "(" {
+            if t == "acc" {
+                return Ok(b.acc());
+            }
             // bare atom = constant
             return Ok(b.constant(parse_number(t)?));
         }
         let head = self.next()?;
+        if head == "elem" {
+            let i = self.next()?;
+            let idx: u32 = i.parse().map_err(|_| ParseError::BadNumber(i.to_string()))?;
+            self.expect(")")?;
+            return Ok(b.elem(idx));
+        }
+        if head == "fold" {
+            let init = self.expr(b)?;
+            let body = self.expr(b)?;
+            self.expect(")")?;
+            return Ok(b.fold(init, body));
+        }
         if head == "var" {
             let i = self.next()?;
             let idx: u32 = i.parse().map_err(|_| ParseError::BadNumber(i.to_string()))?;

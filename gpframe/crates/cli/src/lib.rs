@@ -4,6 +4,8 @@
 
 pub mod audit;
 pub mod extract;
+pub mod emit;
+pub mod pipeline;
 pub mod refactor;
 pub mod gentest;
 pub mod debug;

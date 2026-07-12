@@ -19,7 +19,7 @@ use crate::cert::{Certificate, EnvFingerprint, Tier};
 use crate::metric::Metric;
 use crate::shrink;
 use crate::strategy::{MuPrime, Rng};
-use term::{eval, Term};
+use term::{eval_with_seqs, Term};
 
 /// A term that has passed the gate. NO public constructor — `Gate::promote`
 /// and (Tier A, R2) `Gate::promote_proved` are the only doors.
@@ -32,6 +32,13 @@ pub struct VerifiedTerm {
 impl VerifiedTerm {
     pub fn term(&self) -> &Term { &self.term }
     pub fn certificate(&self) -> &Certificate { &self.cert }
+
+    /// Attach provenance (applied rule names) to the certificate. This is
+    /// annotation, not evidence: it changes WHAT the trace says was done,
+    /// never the claim's tier, metric, or quantification.
+    pub fn annotate_rule_trace(&mut self, trace: Vec<String>) {
+        self.cert.rule_trace = trace;
+    }
 }
 
 /// ⊏-minimal counterexample (T3) plus the raw hit that found it.
@@ -39,6 +46,8 @@ impl VerifiedTerm {
 pub struct CounterExample {
     pub minimal_env: Vec<f64>,
     pub original_env: Vec<f64>,
+    /// Σ v1.2: parallel sequence part of the witness (empty for scalar terms)
+    pub minimal_seqs: Vec<Vec<f64>>,
     pub candidate_val: f64,
     pub reference_val: f64,
 }
@@ -78,25 +87,39 @@ impl Gate {
 
     /// Tier-B promotion of `candidate` against `reference` (the definitional
     /// interpreter runs both — the judge never trusts a faster realization).
+    /// Σ v1.2: sequence-bearing terms are judged over μ' extended with the
+    /// parallel-sequence measure; the well-formedness of fold binders is
+    /// checked FIRST (an ill-formed candidate is refused, not evaluated).
     pub fn promote(&self, candidate: Term, reference: &Term) -> GateOutcome {
         assert_eq!(candidate.arity(), reference.arity(), "arity mismatch at gate");
+        let seq_count = candidate.seq_count().max(reference.seq_count());
+        candidate.fold_owners().expect("candidate: ill-formed fold binders");
+        reference.fold_owners().expect("reference: ill-formed fold binders");
         let arity = reference.arity().max(1);
         let mut rng = Rng::new(self.mu.seed);
 
         for _ in 0..self.n {
-            let e = self.mu.sample(&mut rng, arity);
-            let cv = eval(&candidate, &e);
-            let rv = eval(reference, &e);
+            let (e, sq) = self.mu.sample_with_seqs(&mut rng, arity, seq_count);
+            let sl: Vec<&[f64]> = sq.iter().map(|v| v.as_slice()).collect();
+            let cv = eval_with_seqs(&candidate, &e, &sl);
+            let rv = eval_with_seqs(reference, &e, &sl);
             if !self.metric.eq(cv, rv) {
                 // T3: descend to a ⊏-minimal counterexample.
-                let mut fails = |env: &[f64]| {
-                    !self.metric.eq(eval(&candidate, env), eval(reference, env))
+                let mut fails = |env: &[f64], seqs: &[Vec<f64>]| {
+                    let sl: Vec<&[f64]> = seqs.iter().map(|v| v.as_slice()).collect();
+                    !self.metric.eq(
+                        eval_with_seqs(&candidate, env, &sl),
+                        eval_with_seqs(reference, env, &sl),
+                    )
                 };
-                let minimal = shrink::shrink(e.clone(), &mut fails);
-                let (mcv, mrv) = (eval(&candidate, &minimal), eval(reference, &minimal));
+                let (menv, mseqs) = shrink::shrink_seq(e.clone(), sq, &mut fails);
+                let msl: Vec<&[f64]> = mseqs.iter().map(|v| v.as_slice()).collect();
+                let mcv = eval_with_seqs(&candidate, &menv, &msl);
+                let mrv = eval_with_seqs(reference, &menv, &msl);
                 return GateOutcome::Refuted(Box::new(CounterExample {
-                    minimal_env: minimal,
+                    minimal_env: menv,
                     original_env: e,
+                    minimal_seqs: mseqs,
                     candidate_val: mcv,
                     reference_val: mrv,
                 }));
@@ -110,7 +133,13 @@ impl Gate {
                     n: self.n,
                     alpha: self.alpha,
                     delta_min: self.delta_min(),
-                    mu_spec: self.mu.spec_string(),
+                    mu_spec: {
+                        let mut s = self.mu.spec_string();
+                        if seq_count > 0 {
+                            s.push_str(crate::strategy::MuPrime::seq_spec_clause());
+                        }
+                        s
+                    },
                 },
                 rule_trace: vec![],
                 env: EnvFingerprint::capture(),

@@ -133,7 +133,10 @@ pub fn refactor_with_cost(
     let verified = if approx_fired {
         // Tier B mandatory — the approx rule was a search move, not a proof.
         match gate.promote(extracted, p) {
-            GateOutcome::Promoted(vt) => vt,
+            GateOutcome::Promoted(mut vt) => {
+                vt.annotate_rule_trace(ex.applied.clone()); // provenance
+                vt
+            }
             GateOutcome::Refuted(ce) => {
                 return Err(RefactorError::GateRefuted { minimal_env: ce.minimal_env });
             }

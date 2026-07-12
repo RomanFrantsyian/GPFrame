@@ -46,6 +46,88 @@ impl Term {
         self.nodes.is_empty()
     }
 
+    /// Number of distinct `Elem` payloads = required sequence count.
+    pub fn seq_count(&self) -> usize {
+        self.nodes.iter()
+            .filter(|n| n.op == Op::Elem)
+            .map(|n| n.a as usize + 1)
+            .max()
+            .unwrap_or(0)
+    }
+
+    pub fn has_fold(&self) -> bool {
+        self.nodes.iter().any(|n| n.op == Op::Fold)
+    }
+
+    /// Fold ownership analysis (Σ v1.2). Returns `owner[i] = Some(fold_id)`
+    /// for nodes evaluated PER-ITERATION inside that fold's body, `None` for
+    /// straight-line nodes. Validates the binding discipline:
+    ///   * Acc/Elem must be owned by exactly one fold (never outside-visible)
+    ///   * no nested folds (v1.2)
+    /// Outside-reachable = reachable from root treating fold → init only;
+    /// shared loop-INVARIANT nodes stay outside (hoisted), which is both
+    /// legal (purity) and what the JIT wants.
+    pub fn fold_owners(&self) -> Result<Vec<Option<u32>>, String> {
+        let n = self.nodes.len();
+        // pass 1: outside-reachable (folds contribute init edge only)
+        let mut outside = vec![false; n];
+        let mut stack = vec![self.root];
+        while let Some(id) = stack.pop() {
+            if outside[id as usize] { continue; }
+            outside[id as usize] = true;
+            let node = self.node(id);
+            match node.op {
+                Op::Fold => stack.push(node.a), // init only
+                _ => {
+                    let ar = node.op.arity();
+                    if ar >= 1 { stack.push(node.a); }
+                    if ar >= 2 { stack.push(node.b); }
+                    if ar >= 3 { stack.push(node.c); }
+                }
+            }
+        }
+        for (i, node) in self.nodes.iter().enumerate() {
+            if outside[i] && matches!(node.op, Op::Acc | Op::Elem) {
+                return Err(format!("node {i}: {:?} escapes its fold body", node.op));
+            }
+        }
+        // pass 2: per fold, own body-reachable ∖ outside-reachable
+        let mut owner: Vec<Option<u32>> = vec![None; n];
+        for (fid, node) in self.nodes.iter().enumerate() {
+            if node.op != Op::Fold { continue; }
+            if !outside[fid] { return Err(format!("fold {fid}: nested folds unsupported (v1.2)")); }
+            let mut stack = vec![node.b];
+            while let Some(id) = stack.pop() {
+                let i = id as usize;
+                if outside[i] { continue; } // loop-invariant: hoisted
+                if let Some(prev) = owner[i] {
+                    if prev != fid as u32 {
+                        return Err(format!("node {i} shared between fold bodies {prev} and {fid}"));
+                    }
+                    continue;
+                }
+                owner[i] = Some(fid as u32);
+                let nd = self.node(id);
+                if nd.op == Op::Fold {
+                    return Err(format!("fold {fid}: nested fold at {i} unsupported (v1.2)"));
+                }
+                let ar = nd.op.arity();
+                if ar >= 1 { stack.push(nd.a); }
+                if ar >= 2 { stack.push(nd.b); }
+                if ar >= 3 { stack.push(nd.c); }
+            }
+        }
+        // Acc/Elem must have been claimed by some body
+        for (i, node) in self.nodes.iter().enumerate() {
+            if matches!(node.op, Op::Acc | Op::Elem) && owner[i].is_none() {
+                // unreachable orphans are tolerated; reachable ones are not
+                // (outside-reachable already rejected above)
+                continue;
+            }
+        }
+        Ok(owner)
+    }
+
     /// Number of distinct `Var` payloads = required env width.
     pub fn arity(&self) -> usize {
         self.nodes
@@ -118,6 +200,20 @@ impl TermBuilder {
         self.push(Node { op: Op::Var, a: index, b: 0, c: 0 })
     }
 
+    /// Σ v1.2 binders — valid only inside a fold body (checked by
+    /// `Term::fold_owners`, which the gate runs before judging).
+    pub fn acc(&mut self) -> NodeId {
+        self.push(Node { op: Op::Acc, a: 0, b: 0, c: 0 })
+    }
+
+    pub fn elem(&mut self, seq: u32) -> NodeId {
+        self.push(Node { op: Op::Elem, a: seq, b: 0, c: 0 })
+    }
+
+    pub fn fold(&mut self, init: NodeId, body: NodeId) -> NodeId {
+        self.push(Node { op: Op::Fold, a: init, b: body, c: 0 })
+    }
+
     pub fn unary(&mut self, op: Op, a: NodeId) -> NodeId {
         assert_eq!(op.arity(), 1);
         self.push(Node { op, a, b: 0, c: 0 })
@@ -142,6 +238,13 @@ impl TermBuilder {
         match n.op {
             Op::Const => self.constant(src.consts[n.a as usize]),
             Op::Var => self.var(n.a),
+            Op::Acc => self.acc(),
+            Op::Elem => self.elem(n.a),
+            Op::Fold => {
+                let init = self.copy_subtree(src, n.a);
+                let body = self.copy_subtree(src, n.b);
+                self.fold(init, body)
+            }
             _ => {
                 let ar = n.op.arity();
                 let a = self.copy_subtree(src, n.a);
@@ -172,6 +275,13 @@ impl TermBuilder {
         match n.op {
             Op::Const => self.constant(host.consts[n.a as usize]),
             Op::Var => self.var(n.a),
+            Op::Acc => self.acc(),
+            Op::Elem => self.elem(n.a),
+            Op::Fold => {
+                let init = self.graft(host, n.a, at, donor, donor_id);
+                let body = self.graft(host, n.b, at, donor, donor_id);
+                self.fold(init, body)
+            }
             _ => {
                 let ar = n.op.arity();
                 let a = self.graft(host, n.a, at, donor, donor_id);

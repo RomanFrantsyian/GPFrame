@@ -30,6 +30,27 @@ impl FromStr for ConstBits {
     }
 }
 
+/// Fold element terminal. Token form: `e<idx>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ElemIdx(pub u32);
+
+impl fmt::Display for ElemIdx {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "e{}", self.0)
+    }
+}
+
+impl FromStr for ElemIdx {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        let d = s.strip_prefix('e').ok_or("no e prefix")?;
+        if d.is_empty() || !d.bytes().all(|b| b.is_ascii_digit()) {
+            return Err("not an elem index".into());
+        }
+        d.parse().map(ElemIdx).map_err(|e: std::num::ParseIntError| e.to_string())
+    }
+}
+
 /// Variable terminal. Token form: `v<idx>`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct VarIdx(pub u32);
@@ -60,6 +81,10 @@ define_language! {
         "min" = Min([Id; 2]),
         "max" = Max([Id; 2]),
         "pow" = Pow([Id; 2]),
+        "lt" = Lt([Id; 2]),
+        "gt" = Gt([Id; 2]),
+        "le" = Le([Id; 2]),
+        "ge" = Ge([Id; 2]),
         "neg" = Neg([Id; 1]),
         "abs" = Abs([Id; 1]),
         "sqrt" = Sqrt([Id; 1]),
@@ -71,6 +96,9 @@ define_language! {
         "exp" = Exp([Id; 1]),
         "ln" = Ln([Id; 1]),
         "fma" = Fma([Id; 3]),
+        "fold" = Fold([Id; 2]),
+        "acc" = Acc([Id; 0]),
+        Elem(ElemIdx),
         "select" = Select([Id; 3]),
         Const(ConstBits),
         Var(VarIdx),
@@ -83,11 +111,13 @@ pub fn op_of(n: &SigLang) -> Op {
     match n {
         Add(_) => Op::Add, Sub(_) => Op::Sub, Mul(_) => Op::Mul, Div(_) => Op::Div,
         Min(_) => Op::Min, Max(_) => Op::Max, Pow(_) => Op::Pow,
+        Lt(_) => Op::Lt, Gt(_) => Op::Gt, Le(_) => Op::Le, Ge(_) => Op::Ge,
         Neg(_) => Op::Neg, Abs(_) => Op::Abs, Sqrt(_) => Op::Sqrt,
         Floor(_) => Op::Floor, Ceil(_) => Op::Ceil,
         Sin(_) => Op::Sin, Cos(_) => Op::Cos, Tan(_) => Op::Tan,
         Exp(_) => Op::Exp, Ln(_) => Op::Ln,
         Fma(_) => Op::Fma, Select(_) => Op::Select,
+        Fold(_) => Op::Fold, Acc(_) => Op::Acc, Elem(_) => Op::Elem,
         Const(_) => Op::Const, Var(_) => Op::Var,
     }
 }
@@ -101,6 +131,13 @@ pub fn to_egg(t: &Term) -> RecExpr<SigLang> {
         match n.op {
             Op::Const => out.add(Const(ConstBits(t.consts[n.a as usize].to_bits()))),
             Op::Var => out.add(Var(VarIdx(n.a))),
+            Op::Acc => out.add(Acc([])),
+            Op::Elem => out.add(Elem(ElemIdx(n.a))),
+            Op::Fold => {
+                let init = go(t, n.a, out);
+                let body = go(t, n.b, out);
+                out.add(Fold([init, body]))
+            }
             op => {
                 let a = go(t, n.a, out);
                 let node = match op.arity() {
@@ -118,6 +155,8 @@ pub fn to_egg(t: &Term) -> RecExpr<SigLang> {
                             Op::Mul => Mul([a, b]), Op::Div => Div([a, b]),
                             Op::Min => Min([a, b]), Op::Max => Max([a, b]),
                             Op::Pow => Pow([a, b]),
+                            Op::Lt => Lt([a, b]), Op::Gt => Gt([a, b]),
+                            Op::Le => Le([a, b]), Op::Ge => Ge([a, b]),
                             _ => unreachable!(),
                         }
                     }
@@ -151,6 +190,13 @@ pub fn from_egg(e: &RecExpr<SigLang>) -> Term {
         let id = match n {
             Const(c) => b.constant(f64::from_bits(c.0)),
             Var(v) => b.var(v.0),
+            Acc(_) => b.acc(),
+            Elem(k) => b.elem(k.0),
+            Fold([i, bo]) => {
+                let init = map[usize::from(*i)];
+                let body = map[usize::from(*bo)];
+                b.fold(init, body)
+            }
             _ => {
                 let op = op_of(n);
                 let kids: Vec<u32> = n.children().iter().map(|&c| map[usize::from(c)]).collect();

@@ -22,6 +22,12 @@ pub fn calls_extractable(x: f64) -> f64 {
     horner3(x, 2.0, 3.0, 1.0) + branchy(x)      // inline-able local calls
 }
 
+pub fn fixed_dot(a: [f64; 4], b: [f64; 4]) -> f64 {
+    let mut s = 0.0;
+    for i in 0..4 { s += a[i] * b[i]; }         // v2: unroll + SSA -> EXTRACT
+    s
+}
+
 // -- WITH_EFFORT: pure numeric, needs manual extraction ------------------
 
 pub fn dot(a: &[f64], b: &[f64]) -> f64 {
@@ -74,10 +80,11 @@ fn audit_classifies_and_gates() {
             .unwrap_or_else(|| panic!("fn `{name}` missing from audit")).class
     };
 
-    for f in ["horner3", "smooth_min", "branchy", "calls_extractable"] {
+    for f in ["horner3", "smooth_min", "branchy", "calls_extractable", "fixed_dot",
+              "dot", "calls_effort"] { // Σ v1.2: dynamic folds are EXTRACT
         assert_eq!(class_of(f), Class::Extractable, "{f}");
     }
-    for f in ["dot", "fact", "calls_effort"] {
+    for f in ["fact"] {
         assert_eq!(class_of(f), Class::WithEffort, "{f}");
     }
     for f in ["logs", "mutates", "stringy", "calls_unknown"] {

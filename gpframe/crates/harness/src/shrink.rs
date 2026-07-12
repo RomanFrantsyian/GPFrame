@@ -78,3 +78,62 @@ pub fn shrink(mut env: Vec<f64>, fails: &mut dyn FnMut(&[f64]) -> bool) -> Vec<f
         return env; // no candidate fails ⇒ ⊏-minimal
     }
 }
+
+/// Σ v1.2: rank over (scalars, parallel seqs). Length dominates (shorter
+/// counterexamples first), then element complexity.
+pub fn rank_seq(scalars: &[f64], seqs: &[Vec<f64>]) -> u64 {
+    let len = seqs.first().map(|s| s.len()).unwrap_or(0) as u64;
+    let elems: u64 = seqs.iter().flatten()
+        .fold(0u64, |a, &x| a.saturating_add(complexity(x)));
+    rank(scalars)
+        .saturating_add(len.saturating_mul(1 << 20))
+        .saturating_add(elems)
+}
+
+/// T3 over sequence environments. Candidate schedule (all strictly
+/// rank-reducing): scalar simplifications; drop the LAST index from every
+/// seq together (length−1, keeps parallelism); simplify one element.
+pub fn shrink_seq(
+    mut scalars: Vec<f64>,
+    mut seqs: Vec<Vec<f64>>,
+    fails: &mut dyn FnMut(&[f64], &[Vec<f64>]) -> bool,
+) -> (Vec<f64>, Vec<Vec<f64>>) {
+    debug_assert!(fails(&scalars, &seqs), "shrink_seq on a non-failing input");
+    'outer: loop {
+        let r0 = rank_seq(&scalars, &seqs);
+        // scalar moves
+        for cand in candidates(&scalars) {
+            if rank_seq(&cand, &seqs) < r0 && fails(&cand, &seqs) {
+                scalars = cand;
+                continue 'outer;
+            }
+        }
+        // shorten all seqs together
+        let len = seqs.first().map(|s| s.len()).unwrap_or(0);
+        if len > 0 {
+            let shorter: Vec<Vec<f64>> =
+                seqs.iter().map(|s| s[..len - 1].to_vec()).collect();
+            if fails(&scalars, &shorter) {
+                seqs = shorter;
+                continue 'outer;
+            }
+        }
+        // simplify one element
+        for k in 0..seqs.len() {
+            for i in 0..seqs[k].len() {
+                let x = seqs[k][i];
+                if complexity(x) == 0 { continue; }
+                for v in [0.0, 1.0, -1.0, x.trunc(), x / 2.0] {
+                    if complexity(v) >= complexity(x) { continue; }
+                    let mut cand = seqs.clone();
+                    cand[k][i] = v;
+                    if fails(&scalars, &cand) {
+                        seqs = cand;
+                        continue 'outer;
+                    }
+                }
+            }
+        }
+        return (scalars, seqs);
+    }
+}

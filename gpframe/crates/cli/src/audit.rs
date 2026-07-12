@@ -267,8 +267,11 @@ impl<'ast> Visit<'ast> for FnScan {
                 if !MATH_METHODS.contains(&name.as_str()) {
                     match name.as_str() {
                         "iter" | "map" | "fold" | "sum" | "product" | "zip"
-                        | "enumerate" | "len" | "get" | "windows" | "chunks" =>
+                        | "enumerate" | "get" | "windows" | "chunks" =>
                             self.effort(format!("iterator method `.{name}()`")),
+                        // Σ v1.2: len() is consumed by the extractor as a
+                        // fold bound — no penalty
+                        "len" => {}
                         // panic paths = ⊥; Term_p is total ⇒ guard removal
                         "unwrap" | "expect" =>
                             self.effort(format!("panic path `.{name}()` (Term_p is total)")),
@@ -276,18 +279,29 @@ impl<'ast> Visit<'ast> for FnScan {
                     }
                 }
             }
-            Loop(_) | While(_) | ForLoop(_) => self.effort("loop (needs unroll/recurrence extraction)"),
+            Loop(_) | While(_) => self.effort("unbounded loop (fold roadmap item)"),
+            ForLoop(f) => {
+                // extractor v2 unrolls literal-bound ranges — EXTRACT class
+                let extractable_bounds = matches!(&*f.expr, syn::Expr::Range(r)
+                    if matches!(r.start.as_deref(), Some(syn::Expr::Lit(_)))
+                    && (matches!(r.end.as_deref(), Some(syn::Expr::Lit(_)))
+                        || matches!(r.end.as_deref(),
+                            Some(syn::Expr::MethodCall(m)) if m.method == "len")));
+                if !extractable_bounds {
+                    self.effort("loop bounds outside `lit..lit` / `0..s.len()`");
+                }
+            }
             Match(_) => self.effort("match (needs Select lowering)"),
             Closure(_) => self.effort("closure"),
             Cast(_) => self.effort("cast (sort change)"),
-            Assign(_) => self.effort("local mutation (accumulator pattern)"),
+            // extractor v2: local mutation = SSA rebinding — EXTRACT class
             Binary(b) => {
                 use syn::BinOp::*;
                 match b.op {
-                    AddAssign(_) | SubAssign(_) | MulAssign(_) | DivAssign(_)
-                    | RemAssign(_) | BitAndAssign(_) | BitOrAssign(_)
+                    RemAssign(_) | BitAndAssign(_) | BitOrAssign(_)
                     | BitXorAssign(_) | ShlAssign(_) | ShrAssign(_) =>
-                        self.effort("local mutation (compound assign)"),
+                        self.effort("compound op outside Σ"),
+                    // += -= *= /= : extractor v2 SSA — EXTRACT class
                     Rem(_) => self.effort("% (needs floor-div lowering)"),
                     BitAnd(_) | BitOr(_) | BitXor(_) | Shl(_) | Shr(_) =>
                         self.effort("bit op (exact sort pending)"),

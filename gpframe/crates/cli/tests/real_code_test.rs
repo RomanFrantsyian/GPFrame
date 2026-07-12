@@ -17,6 +17,12 @@ use rules::smt::{discharge_all, Z3Cli};
 use term::eval;
 
 /// easer 0.3.0 src/functions/cubic.rs (MIT) — verbatim body, generic form.
+
+/// Finding 7: cross-generator equality = exact bits OR both-NaN.
+fn xbit_eq(a: f64, b: f64) -> bool {
+    a.to_bits() == b.to_bits() || (a.is_nan() && b.is_nan())
+}
+
 const EASER_CUBIC_SRC: &str = r#"
 impl<F: Float> Easing<F> for Cubic {
     fn ease_in(t: F, b: F, c: F, d: F) -> F {
@@ -72,10 +78,8 @@ fn extraction_gate(fn_name: &str, orig: fn(f64, f64, f64, f64) -> f64) {
         let e = mu.sample(&mut rng, 4);
         let iv = eval(&t, &e);
         let ov = orig(e[0], e[1], e[2], e[3]);
-        assert_eq!(
-            iv.to_bits(), ov.to_bits(),
-            "{fn_name}: extraction drift at sample {i}, env {e:?}: interp={iv} rustc={ov}"
-        );
+        assert!(xbit_eq(iv, ov),
+            "{fn_name}: extraction drift at sample {i}, env {e:?}: interp={iv} rustc={ov}");
     }
 }
 
@@ -115,11 +119,8 @@ fn real_code_full_chain_rustc_to_jit_bitwise() {
     let mut rng = Rng::new(7);
     for _ in 0..10_000u32 {
         let e = mu.sample(&mut rng, 4);
-        assert_eq!(
-            jf.call(&e).to_bits(),
-            orig_ease_in_out(e[0], e[1], e[2], e[3]).to_bits(),
-            "rustc vs jit divergence at {e:?}"
-        );
+        assert!(xbit_eq(jf.call(&e), orig_ease_in_out(e[0], e[1], e[2], e[3])),
+            "rustc vs jit divergence at {e:?}");
     }
     // sanity that the identity gate would also promote it (Tier B evidence)
     match Gate::default_dial(9).promote(t.clone(), &t) {

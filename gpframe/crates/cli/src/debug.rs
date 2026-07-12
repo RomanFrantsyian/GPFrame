@@ -56,6 +56,7 @@ pub fn run(args: &[String]) {
             reference_val: eval(&oracle, &minimal),
             minimal_env: minimal,
             original_env: e,
+            minimal_seqs: vec![],
         },
         ranking: ranking.clone(),
     };

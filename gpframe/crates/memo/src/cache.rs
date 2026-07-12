@@ -84,6 +84,8 @@ impl MemoCache {
     /// eval-through-cache; see module invariants. The hit path performs
     /// zero heap allocation.
     pub fn eval(&self, t: &Term, env: &[f64]) -> f64 {
+        debug_assert!(!t.has_fold(),
+            "memo: fold terms need sequence-aware keys (roadmap)");
         let key: Key = (t.hash, env_fnv(env));
         {
             let mut g = self.inner.lock().unwrap();

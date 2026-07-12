@@ -34,7 +34,9 @@ pub struct DefaultCost;
 
 impl CostFn for DefaultCost {
     fn op_weight(&self, op: Op) -> u64 {
-        if op.is_transcendental() { 32 } else { 1 }
+        if op == Op::Fold { 16 }                 // flat proxy for expected L
+        else if op.is_transcendental() { 32 }
+        else { 1 }
     }
 }
 

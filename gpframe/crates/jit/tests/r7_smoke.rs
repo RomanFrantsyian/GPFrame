@@ -32,15 +32,13 @@ fn o7_bitwise_across_all_op_categories() {
         [0.0, 0.0], [-0.0, 1.0], [f64::NAN, 2.0], [f64::INFINITY, -1.0],
         [1.5e-308, 3.0], [-7.25, 0.125], [1e300, -1e300],
     ] {
-        assert_eq!(
-            jf.call(&env).to_bits(),
-            jf.interp(&env).to_bits(),
-            "jit/interp divergence at {env:?}"
-        );
+        let (a, b) = (jf.call(&env), jf.interp(&env));
+        assert!(a.to_bits() == b.to_bits() || (a.is_nan() && b.is_nan()),
+            "jit/interp divergence at {env:?}: {a} vs {b}");
     }
     let (metric, n) = jf.o7_evidence();
     assert_eq!(n, 10_000);
-    assert!(matches!(metric, harness::metric::Metric::Bitwise));
+    assert!(matches!(metric, harness::metric::Metric::BitwiseNanClass));
 }
 
 #[test]
@@ -51,7 +49,7 @@ fn o7_catches_naive_fmin_compiler_semantics() {
     let gate = Gate::default_dial(8);
     let cfg = LowerConfig { naive_min_max: true, ..Default::default() };
     match install(vt, &cfg, &gate) {
-        Err(InstallError::DifferentialMismatch { minimal_env, jit_val, interp_val }) => {
+        Err(InstallError::DifferentialMismatch { minimal_env, jit_val, interp_val, .. }) => {
             assert!(minimal_env.iter().any(|x| x.is_nan()),
                 "witness should involve NaN, got {minimal_env:?}");
             assert!(jit_val.is_nan() != interp_val.is_nan()

@@ -40,6 +40,23 @@ pub enum Op {
     Min,
     Max,
     Pow,
+    // ordered comparisons, 1.0/0.0-valued; IEEE/Rust semantics: FALSE when
+    // either operand is NaN; ±0 compare equal. First-class (Σ v1.1) so the
+    // extractor needs no NaN-caveated encodings and SMT gets fp.lt/gt/leq/geq.
+    Lt,
+    Gt,
+    Le,
+    Ge,
+    // -- sequence fold (Σ v1.2) ------------------------------------------
+    /// fold(init, body) over K parallel same-length runtime sequences.
+    /// Body may use Acc and Elem(k); iteration count = the sequences' L.
+    /// L = 0 ⇒ result = init. Unbounded data ⇒ no decidable SMT theory
+    /// (T2): rules never rewrite under fold; Tier B gates only.
+    Fold,
+    /// current accumulator — valid ONLY inside a fold body (validated).
+    Acc,
+    /// current element of sequence `k` (payload) — body-only (validated).
+    Elem,
     // -- ternary --------------------------------------------------------
     /// Fused multiply-add: a*b + c with a single rounding.
     Fma,
@@ -53,9 +70,9 @@ impl Op {
     pub const fn arity(self) -> usize {
         use Op::*;
         match self {
-            Const | Var => 0,
+            Const | Var | Acc | Elem => 0,
             Neg | Abs | Sqrt | Floor | Ceil | Sin | Cos | Tan | Exp | Ln => 1,
-            Add | Sub | Mul | Div | Min | Max | Pow => 2,
+            Add | Sub | Mul | Div | Min | Max | Pow | Lt | Gt | Le | Ge | Fold => 2,
             Fma | Select => 3,
         }
     }
@@ -70,7 +87,7 @@ impl Op {
         use Op::*;
         const ALL: &[Op] = &[
             Neg, Abs, Sqrt, Floor, Ceil, Sin, Cos, Tan, Exp, Ln,
-            Add, Sub, Mul, Div, Min, Max, Pow, Fma, Select,
+            Add, Sub, Mul, Div, Min, Max, Pow, Lt, Gt, Le, Ge, Fma, Select, Fold,
         ];
         ALL.iter().copied().find(|op| op.name() == s)
     }
@@ -85,6 +102,8 @@ impl Op {
             Sin => "sin", Cos => "cos", Tan => "tan", Exp => "exp", Ln => "ln",
             Add => "+", Sub => "-", Mul => "*", Div => "/",
             Min => "min", Max => "max", Pow => "pow",
+            Lt => "lt", Gt => "gt", Le => "le", Ge => "ge",
+            Fold => "fold", Acc => "acc", Elem => "elem",
             Fma => "fma", Select => "select",
         }
     }

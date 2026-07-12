@@ -8,8 +8,20 @@
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Metric {
-    /// bit-for-bit: `x.to_bits() == y.to_bits()`. O7 default (fma OFF).
+    /// bit-for-bit: `x.to_bits() == y.to_bits()`. Only meaningful when BOTH
+    /// sides come from the SAME code generator — see BitwiseNanClass.
     Bitwise,
+    /// FINDING 7 (measured): IEEE-754 leaves NaN payload propagation
+    /// unspecified, and it genuinely diverges in practice — LLVM const-fold
+    /// yields +qNaN (0x7ff8…) for -inf + +inf where x86 hardware yields the
+    /// sign-set "real indefinite" (0xfff8…), and fadd operand
+    /// canonicalization can flip which operand's payload survives. So
+    /// bit-for-bit equality ACROSS code generators (rustc vs interp vs
+    /// cranelift) is unachievable in principle for NaN results. This metric
+    /// is the strongest honest cross-generator claim: exact bits for every
+    /// non-NaN value (±0 signs INCLUDED — those ARE specified), NaN ≡ NaN
+    /// as a class.
+    BitwiseNanClass,
     /// IEEE-aware equality: NaN≡NaN, ±0 identified.
     Semantic,
     /// |x−y| ≤ eps_abs  ∨  |x−y| ≤ eps_rel·max(|x|,|y|)  ∨  ulp_dist ≤ max_ulp.
@@ -20,6 +32,8 @@ impl Metric {
     pub fn eq(self, x: f64, y: f64) -> bool {
         match self {
             Metric::Bitwise => x.to_bits() == y.to_bits(),
+            Metric::BitwiseNanClass =>
+                x.to_bits() == y.to_bits() || (x.is_nan() && y.is_nan()),
             Metric::Semantic => {
                 (x.is_nan() && y.is_nan()) || x == y || (x == 0.0 && y == 0.0)
             }

@@ -72,3 +72,32 @@ fn traced_eval_respects_select_pruning() {
         .any(|(i, n)| n.op == Op::Sin && used0[i]);
     assert!(sin_used0, "taken branch must be covered");
 }
+
+#[test]
+fn fold_semantics_and_validation() {
+    use term::eval_with_seqs;
+    // dot product: fold(0, acc + elem0*elem1)
+    let t = term::sexpr::parse("(fold 0.0 (+ acc (* (elem 0) (elem 1))))").unwrap();
+    assert_eq!(t.seq_count(), 2);
+    let a = [1.0, 2.0, 3.0];
+    let b = [4.0, 5.0, 6.0];
+    assert_eq!(eval_with_seqs(&t, &[], &[&a, &b]), 32.0);
+    assert_eq!(eval_with_seqs(&t, &[], &[&[], &[]]), 0.0, "L=0 => init");
+    // sexpr round trip
+    let t2 = term::sexpr::parse(&term::sexpr::print(&t)).unwrap();
+    assert!(t.structurally_eq(&t2));
+    // hash distinguishes elem payloads
+    let e0 = term::sexpr::parse("(fold 0.0 (+ acc (elem 0)))").unwrap();
+    let e1 = term::sexpr::parse("(fold 0.0 (+ acc (elem 1)))").unwrap();
+    assert_ne!(e0.hash, e1.hash);
+    // binder escaping its body is REJECTED
+    let bad = term::sexpr::parse("(+ acc 1.0)").unwrap();
+    assert!(bad.fold_owners().is_err(), "escaped Acc must be rejected");
+    // loop-invariant sharing between outside and body is LEGAL (hoisted)
+    let shared = term::sexpr::parse(
+        "(+ (var 0) (fold (var 0) (+ acc (* (elem 0) (var 0)))))").unwrap();
+    assert!(shared.fold_owners().is_ok());
+    let s = [2.0, 3.0];
+    // x + fold(x, acc + e*x) with x=10: 10 + (10 + 20 + 30) = 70
+    assert_eq!(eval_with_seqs(&shared, &[10.0], &[&s]), 70.0);
+}

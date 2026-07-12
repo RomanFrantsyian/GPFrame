@@ -19,5 +19,5 @@ pub mod interp;
 pub mod sexpr;
 
 pub use ast::{Node, NodeId, Term, TermBuilder};
-pub use interp::{eval, eval_traced};
+pub use interp::{eval, eval_traced, eval_with_seqs};
 pub use sig::Op;

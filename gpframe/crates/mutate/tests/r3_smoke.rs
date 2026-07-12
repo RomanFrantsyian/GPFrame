@@ -70,6 +70,7 @@ fn pin_emitter_renders_suite() {
     use harness::CounterExample;
     let ce = CounterExample {
         minimal_env: vec![0.0, 1.0],
+        minimal_seqs: vec![],
         original_env: vec![123.456, -9.0],
         candidate_val: 1.0,
         reference_val: 2.0,

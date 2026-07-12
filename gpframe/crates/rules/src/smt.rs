@@ -55,9 +55,15 @@ fn smt_op(op: &str) -> Result<(&'static str, usize, bool), Unsupported> {
         "floor" => ("fp.roundToIntegral RTN", 1, false),
         "ceil" => ("fp.roundToIntegral RTP", 1, false),
         "fma" => ("fp.fma", 3, true),
+        "lt" => ("CMP fp.lt", 2, false),
+        "gt" => ("CMP fp.gt", 2, false),
+        "le" => ("CMP fp.leq", 2, false),
+        "ge" => ("CMP fp.geq", 2, false),
         "select" => ("SELECT", 3, false),
         "sin" | "cos" | "tan" | "exp" | "ln" | "pow" =>
             return Err(Unsupported("transcendental: no decidable theory (T2)")),
+        "fold" | "acc" | "elem" =>
+            return Err(Unsupported("fold/seq: unbounded data — Tier B only (T2)")),
         _ => return Err(Unsupported("unknown op")),
     })
 }
@@ -88,6 +94,9 @@ fn encode_pattern(tokens: &[String], pos: &mut usize, vars: &mut Vec<String>)
                 "(ite (not (fp.eq {} {})) {} {})",
                 args[0], fp_lit(0), args[1], args[2]
             ))
+        } else if let Some(cmp) = smt.strip_prefix("CMP ") {
+            Ok(format!("(ite ({cmp} {} {}) {} {})",
+                args[0], args[1], fp_lit(1.0f64.to_bits()), fp_lit(0)))
         } else if rne {
             Ok(format!("({smt} RNE {})", args.join(" ")))
         } else {
@@ -141,6 +150,9 @@ fn encode_term(t: &Term) -> Result<String, Unsupported> {
                 if smt == "SELECT" {
                     format!("(ite (not (fp.eq {} {})) {} {})",
                         args[0], fp_lit(0), args[1], args[2])
+                } else if let Some(cmp) = smt.strip_prefix("CMP ") {
+                    format!("(ite ({cmp} {} {}) {} {})",
+                        args[0], args[1], fp_lit(1.0f64.to_bits()), fp_lit(0))
                 } else if rne {
                     format!("({smt} RNE {})", args.join(" "))
                 } else {

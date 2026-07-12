@@ -70,6 +70,13 @@ pub fn apply(t: &Term, m: Mutation) -> Term {
         match n.op {
             Op::Const => b.constant(t.consts[n.a as usize]),
             Op::Var => b.var(n.a),
+            Op::Acc => b.acc(),
+            Op::Elem => b.elem(n.a),
+            Op::Fold => {
+                let init = go(t, n.a, m, b);
+                let body = go(t, n.b, m, b);
+                b.fold(init, body)
+            }
             _ => {
                 let ar = n.op.arity();
                 debug_assert_eq!(ar, effective_op.arity(), "OpSwap must preserve arity");
