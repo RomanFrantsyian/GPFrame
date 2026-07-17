@@ -1,9 +1,0 @@
-[package]
-name = "harness"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-
-[dependencies]
-term = { path = "../term" }
-# proptest = "1"        # R1: mu' strategies realized over proptest generators

@@ -1,9 +1,0 @@
-[package]
-name = "memo"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-
-[dependencies]
-term = { path = "../term" }
-# dashmap = "5"         # R6: swap std::HashMap+Mutex -> DashMap (v1 M4)
