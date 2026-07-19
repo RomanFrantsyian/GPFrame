@@ -1,0 +1,87 @@
+# CI — the same discipline the engine applies to code, applied to the engine.
+#
+# BLOCKING (correctness — a red X means something provable broke):
+#   * build of the whole workspace, dependency DAG enforced by Cargo
+#   * the full test suite WITH z3 on PATH, so nothing is skipped:
+#     - O1 rule discharge (SMT artifacts written and checked)
+#     - P1/P2 lift extraction gates (need rustc — present by construction)
+#     - end-to-end pipeline gates (both front doors + emission round trip)
+#
+# INFORMATIONAL (style — never blocks a merge):
+#   * clippy, without -D warnings: the codebase carries deliberate style
+#     choices (one-screen trusted base, comment-dense proofs); correctness-
+#     class clippy lints are deny-by-default and WILL fail the build anyway.
+#
+# Deliberately absent:
+#   * cargo fmt --check — the source is intentionally not rustfmt-shaped.
+#   * perf assertions — perf targets are measured by `make calib` and misses
+#     block perf SIGN-OFF only, never correctness (see docs/STATUS.md §6).
+#     Timing on shared CI runners is noise; don't gate on it.
+
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: build + full gated test suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install z3 (O1 rule discharge; tests skip without it — CI must not skip)
+        run: sudo apt-get update -q && sudo apt-get install -y -q z3 && z3 --version
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build workspace
+        run: cargo build --workspace --locked
+
+      - name: Test workspace (86 tests, all gates live)
+        run: cargo test --workspace --locked
+
+      - name: Assert nothing was skipped for missing z3
+        run: |
+          if cargo test --workspace --locked 2>&1 | grep -q "z3 not installed; skipping"; then
+            echo "::error::z3-dependent tests were skipped in CI"; exit 1
+          fi
+
+  lint:
+    name: clippy (informational)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --locked
+
+  docs:
+    name: doc build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # No -D warnings here: the source uses spec-obligation tags ([O7],
+      # [D1], …) and denotation brackets ([[T]]) as deliberate notation,
+      # which rustdoc reads as unresolved intra-doc links. The build itself
+      # must still succeed.
+      - name: rustdoc
+        run: cargo doc --workspace --no-deps --locked

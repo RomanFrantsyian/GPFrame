@@ -1,0 +1,53 @@
+# Deep verification — too slow for the merge loop, too valuable to skip.
+# Runs weekly and on demand. Failures here open the question "did our own
+# suite rot?", not "is this PR broken".
+#
+#   * cargo-mutants over the workspace: mutation-tests the engine's OWN test
+#     suite (the same D5 discipline the `mutate` crate applies to user code —
+#     dogfooding, per Makefile target `mutants`).
+#   * release-mode test pass: the JIT perf smoke and heavier fold gates run
+#     with optimizations, catching anything debug-only assertions masked.
+
+name: deep-verify
+
+on:
+  schedule:
+    - cron: "17 3 * * 1" # Mondays 03:17 UTC
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release-tests:
+    name: full suite in release mode
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install z3
+        run: sudo apt-get update -q && sudo apt-get install -y -q z3
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --release --locked
+
+  mutants:
+    name: mutation-test our own suite (cargo-mutants)
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install z3
+        run: sudo apt-get update -q && sudo apt-get install -y -q z3
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-mutants
+        run: cargo install cargo-mutants --locked
+      - name: Run mutants (mirror of `make mutants`)
+        run: cargo mutants --workspace --timeout 120 -- --release
+      - name: Upload mutants report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutants-report
+          path: mutants.out

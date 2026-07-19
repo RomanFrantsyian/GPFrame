@@ -1,0 +1,21 @@
+# R9: dge-serve — the environment-isolation boundary.
+#
+# External features deploy as separate processes/microservices and talk
+# to DGE ONLY through this HTTP surface (docs/API.md is the contract).
+# The verified state never crosses the wire: responses carry sexprs,
+# refusals, certificates-as-data, and emitted code — the server's Gate
+# arbitrates server-side.
+[package]
+name = "server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "dge-serve"
+path = "src/main.rs"
+
+[dependencies]
+sdk = { path = "../sdk" }
+term = { path = "../term" }
+serde_json = "1"

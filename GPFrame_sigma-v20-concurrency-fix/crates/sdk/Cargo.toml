@@ -1,0 +1,26 @@
+# R8: dge-sdk — the STABLE integration surface.
+#
+# DAG position: sdk sits ABOVE cli (sdk -> cli -> ... -> term); sdk also
+# depends on rules DIRECTLY for its public, soundness-free CostFn trait
+# (L2 "cost irrelevance": any monotone cost function just picks a
+# representative among certified-equal terms — exposing it carries no
+# gate-bypass risk, unlike depending on rules for REWRITING). The
+# inversion rule extends: the core never imports the SDK, and the SDK
+# never reaches around the Gate — extension points live on the UNTRUSTED
+# side of the typestate spine (doors produce Terms; only harness's sealed
+# Gate mints VerifiedTerm).
+[package]
+name = "sdk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+term = { path = "../term" }
+harness = { path = "../harness" }
+rules = { path = "../rules" }
+cli = { path = "../cli" }
+
+
+[dev-dependencies]
+jit = { path = "../jit" }

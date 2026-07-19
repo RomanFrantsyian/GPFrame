@@ -1,0 +1,11 @@
+[package]
+name = "mutate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+term = { path = "../term" }
+harness = { path = "../harness" }
+rules = { path = "../rules" }   # only rules::smt (equivalent-mutant filter)
+# cargo-mutants runs as external tool over the engine's own suite (v1 M6)

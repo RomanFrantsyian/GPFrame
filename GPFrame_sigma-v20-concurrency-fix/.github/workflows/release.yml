@@ -1,0 +1,58 @@
+# Release — on a version tag, re-run the full gated suite (a release is a
+# claim; claims pass gates first), then build and attach the `dge` binary
+# for Linux and macOS.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gate:
+    name: full test suite before anything ships
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install z3
+        run: sudo apt-get update -q && sudo apt-get install -y -q z3
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --locked
+
+  build:
+    name: build ${{ matrix.target }}
+    needs: gate
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Build dge (release)
+        run: cargo build --release --locked -p cli --bin dge --target ${{ matrix.target }}
+      - name: Package
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf dge-${{ github.ref_name }}-${{ matrix.target }}.tar.gz dge
+      - name: Attach to GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/${{ matrix.target }}/release/dge-*.tar.gz
+          generate_release_notes: true
