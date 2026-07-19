@@ -1,9 +1,0 @@
-[package]
-name = "locate"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-
-[dependencies]
-term = { path = "../term" }
-harness = { path = "../harness" }
